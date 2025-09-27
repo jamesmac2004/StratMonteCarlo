@@ -66,8 +66,8 @@ print.mc_result <- function(x, ...) {
 #' @param true_value Optional, true integral value
 #' @return ggplot of MC convergence
 #' @export
+#' @importFrom ggplot2 ggplot aes geom_line geom_point theme_minimal labs theme element_text element_blank scale_color_brewer geom_hline annotate
 mc_plot <- function(..., step = 1, true_value = NULL) {
-  library(ggplot2)
   estimates_list <- list(...)
 
   # Extract estimates if objects are mc_result
@@ -86,23 +86,23 @@ mc_plot <- function(..., step = 1, true_value = NULL) {
     )
   }))
 
-  p <- ggplot(df, aes(x = Samples, y = Estimate, color = Method)) +
-    geom_line(size = 0.5) +
-    geom_point(size = 0.8, alpha = 0.3) +
-    theme_minimal() +
-    labs(title = "Monte Carlo Estimates Convergence",
-         x = "Number of Samples",
-         y = "Estimate") +
-    theme(text = element_text(size = 14),
-          legend.position = "bottom",
-          legend.title = element_blank()) +
-    scale_color_brewer(palette = "Set1")
+  p <- ggplot2::ggplot(df, ggplot2::aes(x = Samples, y = Estimate, color = Method)) +
+    ggplot2::geom_line(size = 0.5) +
+    ggplot2::geom_point(size = 0.8, alpha = 0.3) +
+    ggplot2::theme_minimal() +
+    ggplot2::labs(title = "Monte Carlo Estimates Convergence",
+                  x = "Number of Samples",
+                  y = "Estimate") +
+    ggplot2::theme(text = ggplot2::element_text(size = 14),
+                   legend.position = "bottom",
+                   legend.title = ggplot2::element_blank()) +
+    ggplot2::scale_color_brewer(palette = "Set1")
 
   if(!is.null(true_value)) {
-    p <- p + geom_hline(yintercept = true_value, linetype = "dashed", color = "black", size = 0.6) +
-      annotate("text", x = max(df$Samples)*0.95, y = true_value,
-               label = paste("True value =", signif(true_value, 5)),
-               vjust = -0.5, hjust = 1, color = "black", size = 4)
+    p <- p + ggplot2::geom_hline(yintercept = true_value, linetype = "dashed", color = "black", size = 0.6) +
+      ggplot2::annotate("text", x = max(df$Samples)*0.95, y = true_value,
+                        label = paste("True value =", signif(true_value, 5)),
+                        vjust = -0.5, hjust = 1, color = "black", size = 4)
   }
 
   return(p)
