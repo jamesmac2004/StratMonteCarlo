@@ -2,20 +2,36 @@
 % Please edit documentation in R/Carlo_functions.R
 \name{mc_plot}
 \alias{mc_plot}
-\title{Plot precomputed Monte Carlo estimates}
+\title{Plot Monte Carlo Estimates Convergence}
 \usage{
-mc_plot(..., step = 1, true_value = NULL)
+mc_plot(
+  ...,
+  step = 100,
+  true_value = NULL,
+  title_size = 14,
+  axis_title_size = 12,
+  axis_text_size = 10,
+  legend_text_size = 10
+)
 }
 \arguments{
 \item{...}{Named mc_result objects}
 
 \item{step}{Number of samples per estimate (for x-axis scaling)}
 
-\item{true_value}{Optional, true integral value}
+\item{true_value}{Optional numeric; true integral value for reference line}
+
+\item{title_size}{Title text size}
+
+\item{axis_title_size}{Axis title text size}
+
+\item{axis_text_size}{Axis label text size}
+
+\item{legend_text_size}{Legend text size}
 }
 \value{
-ggplot of MC convergence
+ggplot2 object
 }
 \description{
-Plot precomputed Monte Carlo estimates
+Plot Monte Carlo Estimates Convergence
 }

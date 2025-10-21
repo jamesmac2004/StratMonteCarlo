@@ -2,14 +2,13 @@
 % Please edit documentation in R/Carlo_functions.R
 \name{mc_print}
 \alias{mc_print}
-\title{Print only the final Monte Carlo estimate}
+\title{Print Only Final Monte Carlo Estimate}
 \usage{
 mc_print(x)
 }
 \arguments{
-\item{x}{mc_result (or list with $estimates) or numeric vector}
+\item{x}{mc_result or numeric vector}
 }
 \description{
-Accepts an object of class "mc_result", a list containing an `estimates`
-numeric vector, or a raw numeric vector. Prints only the final estimate.
+Print Only Final Monte Carlo Estimate
 }

@@ -10,42 +10,31 @@ Rcpp::Rostream<true>&  Rcpp::Rcout = Rcpp::Rcpp_cout_get();
 Rcpp::Rostream<false>& Rcpp::Rcerr = Rcpp::Rcpp_cerr_get();
 #endif
 
-// adaptive_partition_signed_1d
-List adaptive_partition_signed_1d(Function f, double lower, double upper, int n_grid);
-RcppExport SEXP _StratMonteCarlo_adaptive_partition_signed_1d(SEXP fSEXP, SEXP lowerSEXP, SEXP upperSEXP, SEXP n_gridSEXP) {
+// montecarlo_integrate_cpp
+List montecarlo_integrate_cpp(SEXP f_input, NumericVector lower, NumericVector upper, int n_samples, bool partition, int dim, std::string expr, Nullable<CharacterVector> vars, bool importance_sampling, std::string is_distribution, Nullable<List> is_params, int step);
+RcppExport SEXP _StratMonteCarlo_montecarlo_integrate_cpp(SEXP f_inputSEXP, SEXP lowerSEXP, SEXP upperSEXP, SEXP n_samplesSEXP, SEXP partitionSEXP, SEXP dimSEXP, SEXP exprSEXP, SEXP varsSEXP, SEXP importance_samplingSEXP, SEXP is_distributionSEXP, SEXP is_paramsSEXP, SEXP stepSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< Function >::type f(fSEXP);
-    Rcpp::traits::input_parameter< double >::type lower(lowerSEXP);
-    Rcpp::traits::input_parameter< double >::type upper(upperSEXP);
-    Rcpp::traits::input_parameter< int >::type n_grid(n_gridSEXP);
-    rcpp_result_gen = Rcpp::wrap(adaptive_partition_signed_1d(f, lower, upper, n_grid));
-    return rcpp_result_gen;
-END_RCPP
-}
-// montecarlo_integrate
-double montecarlo_integrate(Function f, NumericVector lower, NumericVector upper, int n_samples, bool partition, int dim, int n_grid, int n_grid_per_dim);
-RcppExport SEXP _StratMonteCarlo_montecarlo_integrate(SEXP fSEXP, SEXP lowerSEXP, SEXP upperSEXP, SEXP n_samplesSEXP, SEXP partitionSEXP, SEXP dimSEXP, SEXP n_gridSEXP, SEXP n_grid_per_dimSEXP) {
-BEGIN_RCPP
-    Rcpp::RObject rcpp_result_gen;
-    Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< Function >::type f(fSEXP);
+    Rcpp::traits::input_parameter< SEXP >::type f_input(f_inputSEXP);
     Rcpp::traits::input_parameter< NumericVector >::type lower(lowerSEXP);
     Rcpp::traits::input_parameter< NumericVector >::type upper(upperSEXP);
     Rcpp::traits::input_parameter< int >::type n_samples(n_samplesSEXP);
     Rcpp::traits::input_parameter< bool >::type partition(partitionSEXP);
     Rcpp::traits::input_parameter< int >::type dim(dimSEXP);
-    Rcpp::traits::input_parameter< int >::type n_grid(n_gridSEXP);
-    Rcpp::traits::input_parameter< int >::type n_grid_per_dim(n_grid_per_dimSEXP);
-    rcpp_result_gen = Rcpp::wrap(montecarlo_integrate(f, lower, upper, n_samples, partition, dim, n_grid, n_grid_per_dim));
+    Rcpp::traits::input_parameter< std::string >::type expr(exprSEXP);
+    Rcpp::traits::input_parameter< Nullable<CharacterVector> >::type vars(varsSEXP);
+    Rcpp::traits::input_parameter< bool >::type importance_sampling(importance_samplingSEXP);
+    Rcpp::traits::input_parameter< std::string >::type is_distribution(is_distributionSEXP);
+    Rcpp::traits::input_parameter< Nullable<List> >::type is_params(is_paramsSEXP);
+    Rcpp::traits::input_parameter< int >::type step(stepSEXP);
+    rcpp_result_gen = Rcpp::wrap(montecarlo_integrate_cpp(f_input, lower, upper, n_samples, partition, dim, expr, vars, importance_sampling, is_distribution, is_params, step));
     return rcpp_result_gen;
 END_RCPP
 }
 
 static const R_CallMethodDef CallEntries[] = {
-    {"_StratMonteCarlo_adaptive_partition_signed_1d", (DL_FUNC) &_StratMonteCarlo_adaptive_partition_signed_1d, 4},
-    {"_StratMonteCarlo_montecarlo_integrate", (DL_FUNC) &_StratMonteCarlo_montecarlo_integrate, 8},
+    {"_StratMonteCarlo_montecarlo_integrate_cpp", (DL_FUNC) &_StratMonteCarlo_montecarlo_integrate_cpp, 12},
     {NULL, NULL, 0}
 };
 

@@ -2,38 +2,65 @@
 % Please edit documentation in R/Carlo_functions.R
 \name{montecarlo_integrate}
 \alias{montecarlo_integrate}
-\title{Wrapper for Monte Carlo integration (vector of cumulative estimates)}
+\title{Monte Carlo Integration with Optional Importance Sampling}
 \usage{
 montecarlo_integrate(
   f,
   lower,
   upper,
   n_samples,
-  Partition = FALSE,
-  dim = 1,
-  step = 100
+  partition = FALSE,
+  dim = NULL,
+  step = 100,
+  importance_sampling = FALSE,
+  is_distribution = c("normal", "beta", "exponential", "mixture_normal"),
+  is_params = NULL,
+  expr_vars = NULL
 )
 }
 \arguments{
-\item{f}{Function to integrate}
+\item{f}{Function or character expression representing the integrand.}
 
-\item{lower}{Lower bound(s)}
+\item{lower}{Numeric vector of lower bounds.}
 
-\item{upper}{Upper bound(s)}
+\item{upper}{Numeric vector of upper bounds.}
 
-\item{n_samples}{Number of samples}
+\item{n_samples}{Integer; number of Monte Carlo samples.}
 
-\item{Partition}{Use stratified partitioning (logical, not yet used in this version)}
+\item{partition}{Logical; whether to use adaptive stratified partitioning.}
 
-\item{dim}{Dimension of integration}
+\item{dim}{Integer; integration dimension. If NULL, inferred from length(lower).}
 
-\item{step}{Interval at which to record cumulative estimates}
+\item{step}{Integer; number of samples per recorded estimate (for plotting convergence).}
+
+\item{importance_sampling}{Logical; whether to use importance sampling.}
+
+\item{is_distribution}{Character; importance sampling distribution, one of "normal", "beta", "exponential", "mixture_normal".}
+
+\item{is_params}{Optional list; user-supplied importance sampling parameters.}
+
+\item{expr_vars}{Optional character vector; variable names for expression input.}
 }
 \value{
-An object of class "mc_result" containing:
-  - estimates: numeric vector of cumulative estimates
-  - final: last Monte Carlo estimate
+An object of class \code{"mc_result"} containing:
+  \item{estimate}{Final Monte Carlo estimate}
+  \item{estimates}{Vector of estimates at each step for convergence plotting}
+  \item{importance_sampling}{Logical; whether importance sampling was used}
+  \item{is_distribution}{Distribution used for importance sampling (if any)}
+  \item{params_used}{Optimized or user-supplied IS parameters (if importance_sampling = TRUE)}
+  \item{expr}{Expression used (if f is character)}
+  \item{n_partitions}{Number of partitions used (if partitioning enabled)}
 }
 \description{
-Wrapper for Monte Carlo integration (vector of cumulative estimates)
+Performs Monte Carlo integration over 1D or multi-dimensional domains.
+Supports function inputs or expression strings (evaluated via tinyexpr),
+optional adaptive partitioning, and importance sampling using different distributions.
+}
+\examples{
+f <- function(x) x^2
+montecarlo_integrate(f, lower = 0, upper = 1, n_samples = 1e4)
+
+f_expr <- "x1^2 + x2^2"
+montecarlo_integrate(f_expr, lower = c(0,0), upper = c(1,1), n_samples = 1e4)
+
 }

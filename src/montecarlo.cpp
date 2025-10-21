@@ -1,193 +1,314 @@
 #include <Rcpp.h>
+#include <cmath>
+#include <algorithm>
+#include <string>
+#include <optional>
+#include <vector>
+#include <random>
+#include "tinyexpr.h"
+
 using namespace Rcpp;
 
-// -------------------- 1D Adaptive Signed Partition --------------------
-//' Adaptive partition for 1D signed functions (Internal)
- //'
- //' Creates adaptive partitions for 1D functions by identifying zero crossings
- //' and local extrema. This is an internal function used by the main integration routine.
- //'
- //' @param f Function to partition
- //' @param lower Lower bound of integration domain
- //' @param upper Upper bound of integration domain
- //' @param n_grid Number of grid points for analysis (default: 1000)
- //' @return List of partition intervals with lower and upper bounds
- //' @keywords internal
- // [[Rcpp::export]]
- List adaptive_partition_signed_1d(Function f, double lower, double upper, int n_grid = 1000) {
-   NumericVector x(n_grid);
-   NumericVector y(n_grid);
-   double dx = (upper - lower)/(n_grid-1);
+// =============================================================
+// UNIVERSAL FUNCTION WRAPPER (R function / tinyexpr)
+// =============================================================
+struct FunctionWrapper {
+  bool use_tinyexpr;
+  std::string expr;
+  te_expr *compiled_expr = nullptr;
+  std::vector<std::string> var_names;
+  std::vector<double> var_values;
+  std::optional<Rcpp::Function> f;
 
-   for(int i=0;i<n_grid;i++){
-     x[i] = lower + i*dx;
-     y[i] = as<double>(f(x[i]));
-   }
+  FunctionWrapper(Rcpp::Function f_) : use_tinyexpr(false), f(f_) {}
+  FunctionWrapper(const std::string& expr_, const std::vector<std::string>& vars)
+    : use_tinyexpr(true), expr(expr_), var_names(vars), var_values(vars.size()) {
+    if (expr.empty()) Rcpp::stop("Empty expression passed to FunctionWrapper.");
+    std::vector<te_variable> te_vars;
+    for (size_t i = 0; i < vars.size(); i++)
+      te_vars.push_back({vars[i].c_str(), &var_values[i]});
+    compiled_expr = te_compile(expr.c_str(), te_vars.data(), te_vars.size(), nullptr);
+    if (!compiled_expr) Rcpp::stop("Failed to compile expression with tinyexpr.");
+  }
 
-   std::vector<double> breaks;
-   breaks.push_back(lower);
+  ~FunctionWrapper() { if (compiled_expr) te_free(compiled_expr); }
 
-   for(int i=1;i<n_grid-1;i++){
-     // split at zero crossings or local extrema
-     if((y[i] < y[i-1] && y[i] < y[i+1]) || (y[i] > y[i-1] && y[i] > y[i+1]) || (y[i]*y[i-1]<0)){
-       breaks.push_back(x[i]);
-     }
-   }
-   breaks.push_back(upper);
+  double eval(const NumericVector& x) {
+    if (!use_tinyexpr) {
+      if (!f.has_value()) Rcpp::stop("Function not initialized.");
+      return Rcpp::as<double>((*f)(x));
+    } else {
+      if (x.size() != var_values.size()) Rcpp::stop("Input vector length mismatch.");
+      for (size_t i = 0; i < var_values.size(); i++) var_values[i] = x[i];
+      return te_eval(compiled_expr);
+    }
+  }
+};
 
-   List partitions;
-   for(size_t i=0;i<breaks.size()-1;i++){
-     partitions.push_back(
-       List::create(
-         _["lower"] = NumericVector::create(breaks[i]),
-         _["upper"] = NumericVector::create(breaks[i+1])
-       )
-     );
-   }
-   return partitions;
- }
+// =============================================================
+// SUPPORT FUNCTIONS
+// =============================================================
+double sample_truncated_normal(double mean, double sd, double lower, double upper) {
+  double alpha = R::pnorm(lower, mean, sd, 1, 0);
+  double beta  = R::pnorm(upper, mean, sd, 1, 0);
+  double u = R::runif(alpha, beta);
+  return R::qnorm(u, mean, sd, 1, 0);
+}
 
- // -------------------- ND Grid Generator --------------------
- void generate_grid_nd(const NumericVector& lower, const NumericVector& upper,
-                       const IntegerVector& n_grid, int dim,
-                       NumericVector& current, List& all_points) {
-   if(dim == lower.size()){
-     all_points.push_back(clone(current));
-     return;
-   }
+double truncated_normal_density(double x, double mean, double sd, double lower, double upper) {
+  double Z = R::pnorm(upper, mean, sd, 1, 0) - R::pnorm(lower, mean, sd, 1, 0);
+  if (Z < 1e-12) Z = 1e-12;
+  return R::dnorm(x, mean, sd, 0) / Z;
+}
 
-   double step = (upper[dim] - lower[dim]) / (n_grid[dim]-1);
-   for(int i=0;i<n_grid[dim];i++){
-     current[dim] = lower[dim] + i*step;
-     generate_grid_nd(lower, upper, n_grid, dim+1, current, all_points);
-   }
- }
+double sample_truncated_beta(double alpha, double beta, double lower, double upper) {
+  double u = R::runif(0,1);
+  double q = R::qbeta(u, alpha, beta, 1, 0);
+  return lower + q * (upper - lower);
+}
 
- // -------------------- ND Signed Partition --------------------
- List adaptive_partition_signed_nd(Function f, NumericVector lower, NumericVector upper, int n_grid_per_dim = 5){
-   int dim = lower.size();
-   IntegerVector n_grid(dim, n_grid_per_dim);
+double truncated_beta_density(double x, double alpha, double beta, double lower, double upper) {
+  double z = (x - lower) / (upper - lower);
+  double dens = R::dbeta(z, alpha, beta, 0) / (upper - lower);
+  return dens;
+}
 
-   List all_points;
-   NumericVector current(dim);
-   generate_grid_nd(lower, upper, n_grid, 0, current, all_points);
+double sample_truncated_exponential(double rate, double lower, double upper) {
+  double u = R::runif(0,1);
+  double cdf_lower = 1 - exp(-rate * lower);
+  double cdf_upper = 1 - exp(-rate * upper);
+  double z = cdf_lower + u * (cdf_upper - cdf_lower);
+  return -log(1 - z)/rate;
+}
 
-   List partitions;
-   for(int i=0;i<all_points.size();i++){
-     NumericVector pt = all_points[i];
-     NumericVector delta = (upper - lower) / (2.0*n_grid_per_dim);
+double truncated_exponential_density(double x, double rate, double lower, double upper) {
+  double Z = exp(-rate * lower) - exp(-rate * upper);
+  if (Z < 1e-12) Z = 1e-12;
+  return rate * exp(-rate * x) / Z;
+}
 
-     // define lower and upper for this partition
-     NumericVector p_lower = pt - delta;
-     NumericVector p_upper = pt + delta;
+// =============================================================
+// ADAPTIVE PARTITIONING
+// =============================================================
+List auto_partition_adaptive(Function f, double lower, double upper, int n_grid = 1000, int pilot = 10) {
+  NumericVector x(n_grid), y(n_grid);
+  double dx = (upper - lower) / (n_grid - 1);
+  for (int i = 0; i < n_grid; i++) {
+    x[i] = lower + i * dx;
+    y[i] = as<double>(f(x[i]));
+  }
 
-     // make sure bounds don't exceed original bounds
-     for(int d=0;d<dim;d++){
-       if(p_lower[d] < lower[d]) p_lower[d] = lower[d];
-       if(p_upper[d] > upper[d]) p_upper[d] = upper[d];
-     }
+  NumericVector y_smooth = clone(y);
+  for (int i = 1; i < n_grid - 1; i++) y_smooth[i] = (y[i-1]+y[i]+y[i+1])/3.0;
 
-     partitions.push_back(
-       List::create(
-         _["lower"] = p_lower,
-         _["upper"] = p_upper
-       )
-     );
-   }
-   return partitions;
- }
+  std::vector<double> troughs = {lower};
+  for (int i = 1; i < n_grid - 1; i++)
+    if (y_smooth[i] < y_smooth[i-1] && y_smooth[i] < y_smooth[i+1])
+      troughs.push_back(x[i]);
+    troughs.push_back(upper);
 
- // -------------------- Function Evaluator --------------------
- double eval_f(Function f, const NumericVector& x, int dim){
-   if(dim==1) return as<double>(f(x[0]));
-   else if(dim==2) return as<double>(f(x[0], x[1]));
-   else if(dim==3) return as<double>(f(x[0], x[1], x[2]));
-   else {
-     List args(dim);
-     for(int d=0;d<dim;d++) args[d] = x[d];
-     return as<double>(Rcpp::Language(f, args).eval());
-   }
- }
+    List partitions;
+    for (size_t i = 0; i < troughs.size() - 1; i++) {
+      double p_lower = troughs[i], p_upper = troughs[i+1];
+      double max_val = R_NegInf, max_x = p_lower;
+      for (int j = 0; j < pilot; j++) {
+        double xi = p_lower + (p_upper - p_lower)*R::runif(0,1);
+        double yi = as<double>(f(xi));
+        if (yi > max_val) { max_val = yi; max_x = xi; }
+      }
+      partitions.push_back(List::create(
+          _["lower"] = NumericVector::create(p_lower),
+          _["upper"] = NumericVector::create(p_upper),
+          _["center"] = max_x,
+          _["max_value"] = max_val
+      ));
+    }
+    return partitions;
+}
 
- // -------------------- Sample Allocation --------------------
- IntegerVector allocate_samples(const List& partitions, int n_samples){
-   int n = partitions.size();
-   IntegerVector alloc(n);
-   int base = n_samples / n;
-   int rem = n_samples % n;
-   for(int i=0;i<n;i++){
-     alloc[i] = base + (i<rem?1:0);
-   }
-   return alloc;
- }
+List auto_partition_nd_adaptive(Function f, NumericVector lower, NumericVector upper, int n_per_dim = 4, int pilot = 10) {
+  int dim = lower.size();
+  if (dim == 1) return auto_partition_adaptive(f, lower[0], upper[0], n_per_dim*100, pilot);
 
- // -------------------- Integrate Partition --------------------
- double integrate_partition(Function f, const List& partition, int samples, int dim){
-   NumericVector lower = partition["lower"];
-   NumericVector upper = partition["upper"];
-   NumericVector x(dim);
+  List partitions;
+  std::vector<double> dx(dim);
+  for (int d = 0; d < dim; d++) dx[d] = (upper[d]-lower[d])/n_per_dim;
 
-   double volume = 1.0;
-   for(int d=0;d<dim;d++) volume *= (upper[d]-lower[d]);
+  IntegerVector idx(dim, 0);
+  NumericVector part_lower(dim), part_upper(dim);
+  bool done = false;
 
-   double sum = 0.0;
-   for(int i=0;i<samples;i++){
-     for(int d=0;d<dim;d++){
-       x[d] = lower[d] + (upper[d]-lower[d])*R::runif(0,1);
-     }
-     sum += eval_f(f, x, dim);
-   }
+  while(!done) {
+    for (int d = 0; d < dim; d++) {
+      part_lower[d] = lower[d]+idx[d]*dx[d];
+      part_upper[d] = lower[d]+(idx[d]+1)*dx[d];
+    }
+    double max_val = R_NegInf;
+    NumericVector center(dim);
+    for (int i=0;i<pilot;i++){
+      NumericVector x(dim);
+      for (int d=0; d<dim; d++) x[d]=part_lower[d]+(part_upper[d]-part_lower[d])*R::runif(0,1);
+      double val = as<double>(f(x));
+      if (val>max_val) { max_val=val; center = clone(x); }
+    }
+    partitions.push_back(List::create(
+        _["lower"] = clone(part_lower),
+        _["upper"] = clone(part_upper),
+        _["center"] = clone(center),
+        _["max_value"] = max_val
+    ));
 
-   return volume * sum / samples;
- }
+    for (int d=dim-1; d>=0; d--){
+      idx[d]++;
+      if (idx[d]<n_per_dim) break;
+      else if(d==0) {done=true; break;} else idx[d]=0;
+    }
+  }
+  return partitions;
+}
 
- // -------------------- Main Monte Carlo Function --------------------
- //' Monte Carlo Integration with Adaptive Partitioning (C++ Backend)
- //'
- //' C++ implementation of Monte Carlo integration with optional adaptive partitioning.
- //' This function is called by the R wrapper montecarlo_integrate().
- //'
- //' @param f Function to integrate
- //' @param lower Vector of lower bounds for each dimension
- //' @param upper Vector of upper bounds for each dimension
- //' @param n_samples Total number of Monte Carlo samples
- //' @param partition Logical indicating whether to use adaptive partitioning
- //' @param dim Dimension of the integration (default: 1)
- //' @param n_grid Grid size for 1D partitioning (default: 1000)
- //' @param n_grid_per_dim Grid points per dimension for multi-D partitioning (default: 5)
- //' @return Numerical estimate of the integral
- //' @keywords internal
- // [[Rcpp::export(name="montecarlo_integrate_cpp")]]
- double montecarlo_integrate(Function f, NumericVector lower, NumericVector upper,
-                             int n_samples, bool partition=false, int dim=1,
-                             int n_grid=1000, int n_grid_per_dim=5){
+// =============================================================
+// IMPORTANCE PARAMETER OPTIMIZATION
+// =============================================================
+List optimize_importance_params(FunctionWrapper &fw, const NumericVector &lower, const NumericVector &upper,
+                                int dim, const std::string &distribution, int n_pilot=500) {
+  NumericMatrix samples(n_pilot, dim);
+  NumericVector values(n_pilot);
+  for (int i=0;i<n_pilot;i++){
+    NumericVector x(dim);
+    for(int d=0;d<dim;d++){x[d]=lower[d]+(upper[d]-lower[d])*R::runif(0,1); samples(i,d)=x[d];}
+    values[i] = std::abs(fw.eval(x));
+  }
+  double sum_values = std::max(double(sum(values)),1e-12);
+  NumericVector weights = values/sum_values;
+  List params;
+  if(distribution=="normal"){
+    NumericVector means(dim), sds(dim);
+    for(int d=0;d<dim;d++){
+      double mean_est=0,var_est=0;
+      for(int i=0;i<n_pilot;i++) mean_est+=weights[i]*samples(i,d);
+      for(int i=0;i<n_pilot;i++) var_est+=weights[i]*pow(samples(i,d)-mean_est,2);
+      means[d]=mean_est;
+      sds[d]=std::max(std::sqrt(var_est),0.01*(upper[d]-lower[d]));
+    }
+    params["mean"]=means; params["sd"]=sds;
+  } else if(distribution=="beta"){
+    NumericVector alpha(dim,2.0), beta(dim,2.0);
+    params["alpha"]=alpha; params["beta"]=beta;
+  } else if(distribution=="exponential"){
+    NumericVector rate(dim,1.0);
+    params["rate"]=rate;
+  } else if(distribution=="mixture_normal"){
+    NumericVector means(dim), sds(dim);
+    for(int d=0;d<dim;d++){means[d]=(upper[d]+lower[d])/2; sds[d]=0.3*(upper[d]-lower[d]);}
+    params["mean"]=means; params["sd"]=sds;
+  }
+  return params;
+}
 
-   if(!partition){
-     NumericVector x(dim);
-     double sum=0.0, volume=1.0;
-     for(int d=0;d<dim;d++) volume *= (upper[d]-lower[d]);
-     for(int i=0;i<n_samples;i++){
-       for(int d=0;d<dim;d++) x[d] = lower[d] + (upper[d]-lower[d])*R::runif(0,1);
-       sum += eval_f(f, x, dim);
-     }
-     return volume * sum / n_samples;
-   } else {
-     List partitions;
-     if(dim==1){
-       partitions = adaptive_partition_signed_1d(f, lower[0], upper[0], n_grid);
-     } else {
-       partitions = adaptive_partition_signed_nd(f, lower, upper, n_grid_per_dim);
-     }
+// =============================================================
+// IMPORTANCE SAMPLER
+// =============================================================
+List sample_importance(const NumericVector &lower, const NumericVector &upper, int dim,
+                       const std::string &distribution, const List &params){
+  NumericVector x(dim); double dens=1.0;
+  if(distribution=="normal"){
+    NumericVector mean=params["mean"], sd=params["sd"];
+    for(int d=0;d<dim;d++){
+      x[d]=sample_truncated_normal(mean[d],sd[d],lower[d],upper[d]);
+      dens*=truncated_normal_density(x[d],mean[d],sd[d],lower[d],upper[d]);
+    }
+  } else if(distribution=="beta"){
+    NumericVector alpha=params["alpha"], beta=params["beta"];
+    for(int d=0;d<dim;d++){
+      x[d]=sample_truncated_beta(alpha[d],beta[d],lower[d],upper[d]);
+      dens*=truncated_beta_density(x[d],alpha[d],beta[d],lower[d],upper[d]);
+    }
+  } else if(distribution=="exponential"){
+    NumericVector rate=params["rate"];
+    for(int d=0;d<dim;d++){
+      x[d]=sample_truncated_exponential(rate[d],lower[d],upper[d]);
+      dens*=truncated_exponential_density(x[d],rate[d],lower[d],upper[d]);
+    }
+  } else if(distribution=="mixture_normal"){
+    NumericVector mean=params["mean"], sd=params["sd"];
+    for(int d=0;d<dim;d++){
+      if(R::runif(0,1)<0.5) x[d]=sample_truncated_normal(mean[d]-sd[d],sd[d],lower[d],upper[d]);
+      else x[d]=sample_truncated_normal(mean[d]+sd[d],sd[d],lower[d],upper[d]);
+      dens*=0.5*truncated_normal_density(x[d],mean[d]-sd[d],sd[d],lower[d],upper[d])
+        +0.5*truncated_normal_density(x[d],mean[d]+sd[d],sd[d],lower[d],upper[d]);
+    }
+  }
+  return List::create(_["x"]=x,_["density"]=dens);
+}
 
-     if(partitions.size()==0) return montecarlo_integrate(f, lower, upper, n_samples,false,dim);
+// =============================================================
+// MONTE CARLO INTEGRATOR
+// [[Rcpp::export]]
+List montecarlo_integrate_cpp(SEXP f_input, NumericVector lower, NumericVector upper,
+                              int n_samples, bool partition=false, int dim=1,
+                              std::string expr="", Nullable<CharacterVector> vars=R_NilValue,
+                              bool importance_sampling=false, std::string is_distribution="normal",
+                              Nullable<List> is_params=R_NilValue, int step=100){
+  std::vector<std::string> varnames;
+  if(!Rf_isNull(vars)){
+    CharacterVector v(vars);
+    for(int i=0;i<v.size();i++) varnames.push_back(as<std::string>(v[i]));
+  } else for(int d=0;d<dim;d++) varnames.push_back("x"+std::to_string(d+1));
 
-     IntegerVector alloc = allocate_samples(partitions, n_samples);
-     double total=0.0;
+  FunctionWrapper fw = Rf_isFunction(f_input)? FunctionWrapper(as<Function>(f_input)) : FunctionWrapper(expr,varnames);
 
-     for(int i=0;i<partitions.size();i++){
-       if(alloc[i]>0) total += integrate_partition(f, partitions[i], alloc[i], dim);
-     }
+  List params;
+  if(importance_sampling){
+    if(is_params.isNull()) params = optimize_importance_params(fw, lower, upper, dim, is_distribution);
+    else params = as<List>(is_params);
+  }
 
-     return total;
-   }
- }
+  List partitions;
+  if(partition){
+    if(dim==1 && Rf_isFunction(f_input)) partitions = auto_partition_adaptive(as<Function>(f_input), lower[0], upper[0]);
+    else if(dim>1 && Rf_isFunction(f_input)) partitions = auto_partition_nd_adaptive(as<Function>(f_input), lower, upper);
+    else partitions = List::create(List::create(_["lower"]=lower,_["upper"]=upper));
+  } else partitions = List::create(List::create(_["lower"]=lower,_["upper"]=upper));
+
+  int n_partitions = partitions.size();
+  int samples_per_partition = std::max(1,n_samples/n_partitions);
+
+  NumericVector estimates; double sum=0.0; int total_samples=0;
+  for(int p=0;p<n_partitions;p++){
+    List part=partitions[p];
+    NumericVector part_lower=part["lower"], part_upper=part["upper"];
+    for(int i=0;i<samples_per_partition;i++){
+      NumericVector x(dim);
+      if(!importance_sampling){
+        for(int d=0;d<dim;d++) x[d]=part_lower[d]+(part_upper[d]-part_lower[d])*R::runif(0,1);
+        sum+=fw.eval(x);
+      } else {
+        List s=sample_importance(part_lower, part_upper, dim, is_distribution, params);
+        NumericVector xs = s["x"];
+        double qx = s["density"];
+        double val = fw.eval(xs);
+        sum+=val/qx;
+      }
+      total_samples++;
+      if(total_samples%step==0){
+        double volume=1.0; for(int d=0;d<dim;d++) volume*=(upper[d]-lower[d]);
+        double current_estimate = importance_sampling ? sum/total_samples : volume*sum/total_samples;
+        estimates.push_back(current_estimate);
+      }
+    }
+  }
+
+  double volume=1.0; for(int d=0;d<dim;d++) volume*=(upper[d]-lower[d]);
+  double final_estimate = importance_sampling ? sum/total_samples : volume*sum/total_samples;
+
+  return List::create(
+    _["estimate"]=final_estimate,
+    _["estimates"]=estimates,
+    _["importance_sampling"]=importance_sampling,
+    _["is_distribution"]=is_distribution,
+    _["params_used"]=importance_sampling?Rcpp::wrap(params):R_NilValue,
+    _["expr"]=fw.use_tinyexpr?Rcpp::wrap(fw.expr):R_NilValue,
+    _["n_partitions"]=n_partitions
+  );
+}

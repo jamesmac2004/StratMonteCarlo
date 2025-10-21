@@ -2,15 +2,15 @@
 % Please edit documentation in R/Carlo_functions.R
 \name{print.mc_result}
 \alias{print.mc_result}
-\title{Print method for Monte Carlo results}
+\title{Print Monte Carlo Result}
 \usage{
 \method{print}{mc_result}(x, ...)
 }
 \arguments{
-\item{x}{An object of class "mc_result"}
+\item{x}{Object of class \code{"mc_result"}}
 
 \item{...}{Ignored}
 }
 \description{
-Print method for Monte Carlo results
+Print Monte Carlo Result
 }
